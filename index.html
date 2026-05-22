@@ -248,47 +248,34 @@ let raycaster = new THREE.Raycaster();
 let mouse = new THREE.Vector2();
 
 function makeBarkMaterial() {
-  const canvasColor = document.createElement('canvas');
-  canvasColor.width = canvasColor.height = 512; 
-  const ctxColor = canvasColor.getContext('2d');
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; 
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
 
-  const canvasBump = document.createElement('canvas');
-  canvasBump.width = canvasBump.height = 512;
-  const ctxBump = canvasBump.getContext('2d');
+  // Nền màu gỗ nâu sáng đơn giản, mượt mà
+  const g = ctx.createLinearGradient(0, 0, 256, 0);
+  g.addColorStop(0, '#5C4033');
+  g.addColorStop(0.5, '#8B5A2B');
+  g.addColorStop(1, '#4A3525');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
 
-  const g = ctxColor.createLinearGradient(0, 0, 512, 0);
-  g.addColorStop(0, '#5c4033'); 
-  g.addColorStop(0.5, '#8b5a2b'); 
-  g.addColorStop(1, '#4a3525');
-  ctxColor.fillStyle = g;
-  ctxColor.fillRect(0, 0, 512, 512);
-
-  ctxBump.fillStyle = '#888888';
-  ctxBump.fillRect(0, 0, 512, 512);
-
-  for (let i = 0; i < 200; i++) {
-    const x = Math.random() * 512;
-    const w = 1 + Math.random() * 5;
-    const alpha = 0.2 + Math.random() * 0.6;
-    ctxColor.fillStyle = `rgba(30, 15, 5, ${alpha})`;
-    ctxColor.fillRect(x, 0, w, 512);
-    ctxBump.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-    ctxBump.fillRect(x, 0, w, 512);
+  // Điểm xuyết vài sọc vân gỗ thẳng đứng nhẹ nhàng
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+  for (let i = 0; i < 40; i++) {
+    const x = Math.random() * 256;
+    const w = 1 + Math.random() * 3;
+    ctx.fillRect(x, 0, w, 256);
   }
 
-  const colorTex = new THREE.CanvasTexture(canvasColor);
-  colorTex.wrapS = colorTex.wrapT = THREE.RepeatWrapping;
-  colorTex.encoding = THREE.sRGBEncoding;
-
-  const bumpTex = new THREE.CanvasTexture(canvasBump);
-  bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
 
   return new THREE.MeshStandardMaterial({
-    map: colorTex,       
-    bumpMap: bumpTex,    
-    bumpScale: 0.15,     
-    color: 0xffffff,
-    roughness: 0.95,     
+    map: tex, 
+    color: 0xffffff, 
+    roughness: 0.85, // Nhám nhẹ để không bị bóng lóa
     metalness: 0
   });
 }
@@ -604,26 +591,47 @@ function setupFormAndUIActions() {
   const pickerPreview = document.getElementById('picker-preview-img');
   let base64ImageStr = "";
 
+  // Đóng mở các bảng thông báo
   document.getElementById('btn-add-trigger').onclick = () => modalAdd.classList.add('active');
   document.getElementById('btn-add-close').onclick = () => modalAdd.classList.remove('active');
   document.getElementById('btn-view-close').onclick = () => modalView.classList.remove('active');
 
+  // Kích hoạt nút chọn ảnh
   pickerZone.onclick = () => inputFile.click();
+
+  // TỰ ĐỘNG NÉN ẢNH (Giảm dung lượng chống sập server)
   inputFile.onchange = (e) => {
     if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
       const reader = new FileReader();
+      
       reader.onload = (event) => {
-        base64ImageStr = event.target.result;
-        pickerPreview.style.backgroundImage = `url(${base64ImageStr})`;
-        pickerPreview.style.display = 'block';
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 500; // Thu nhỏ chiều ngang ảnh tối đa 500px
+          const scaleSize = MAX_WIDTH / img.width;
+          canvas.width = MAX_WIDTH;
+          canvas.height = img.height * scaleSize;
+
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          // Ép thành định dạng JPEG và giảm chất lượng xuống 60%
+          base64ImageStr = canvas.toDataURL('image/jpeg', 0.6);
+          pickerPreview.style.backgroundImage = `url(${base64ImageStr})`;
+          pickerPreview.style.display = 'block';
+        };
+        img.src = event.target.result;
       };
-      reader.readAsDataURL(e.target.files[0]);
+      reader.readAsDataURL(file);
     }
   };
 
+  // Gửi kỉ niệm lên cây
   document.getElementById('form-memory').onsubmit = async (e) => {
     e.preventDefault();
-    if (!base64ImageStr) { alert("Vui lòng chọn một bức ảnh kỉ niệm!"); return; }
+    if (!base64ImageStr) { alert("Bạn ơi, nhớ chọn một bức ảnh kỉ niệm nhé!"); return; }
 
     const submitBtn = e.target.querySelector('button[type="submit"]');
     submitBtn.innerText = "Đang treo lên cây...";
@@ -649,18 +657,21 @@ function setupFormAndUIActions() {
       pickerPreview.style.display = 'none';
       base64ImageStr = "";
     } else {
-      allMemoriesCache.pop();
+      alert("Lỗi tải lên! Có thể mạng đang chập chờn, bạn thử lại xem sao nhé.");
+      allMemoriesCache.pop(); // Xóa ảnh bị lỗi khỏi danh sách
     }
     submitBtn.innerText = "Treo Lên Cây Kí Ức";
     submitBtn.disabled = false;
   };
 
+  // Nút Lá Rơi
   document.getElementById('btn-fall-trigger').onclick = () => {
     isFoliageFalling = !isFoliageFalling;
     document.getElementById('btn-fall-trigger').innerText = isFoliageFalling ? "🍃 Ngừng rơi" : "🍃 Lá rơi";
     if (!isFoliageFalling) leafPositions.forEach(lp => { lp.y = lp.originY; });
   };
 
+  // Trình phát nhạc
   const audio = document.getElementById('bg-audio');
   document.getElementById('btn-music-trigger').onclick = () => {
     if (!audio.src) document.getElementById('input-music-file').click();
