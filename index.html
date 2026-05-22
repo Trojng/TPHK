@@ -7,14 +7,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&family=Quicksand:wght@400;500;600&display=swap" rel="stylesheet">
-<script type=\"importmap\">
-{
-  "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-  }
-}
-</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; overflow: hidden; font-family: 'Quicksand', sans-serif; background: #b8e0f0; }
@@ -93,7 +89,6 @@
   #loader p { font-size: 0.95rem; font-weight: 600; color: #3d664c; letter-spacing: 0.5px; }
 
   @keyframes spin { to { transform: rotate(360deg); } }
-
   .hidden { display: none !important; }
 </style>
 </head>
@@ -180,34 +175,44 @@
 <input type="file" id="input-music-file" accept="audio/*" style="display: none;" />
 <audio id="bg-audio" loop></audio>
 
-<script type="module">
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-
+<script>
 /* ============================================================================
-   CẤU HÌNH KẾT NỐI MÁY CHỦ ONLINE (JSONBIN)
+   BƯỚC CHỈNH SỬA DUY NHẤT: ĐIỀN THÔNG TIN BẢO MẬT CỦA BẠN VÀO ĐÂY
 ============================================================================ */
 const BIN_ID = "6a105c84ee5a733b1200902d"; 
-const API_KEY = "$2a$10$pBm8gHhqid7CnboOjcbocewzpD2kYAU.CbKnzCfff1NCmU1giSYEO"; // Khóa bảo mật của bạn
+const API_KEY = "$2a$10$pBm8gHhqid7CnboOjcbocewzpD2kYAU.CbKnzCfff1NCmU1giSYEO"; 
 
-// Hàm lấy toàn bộ dữ liệu từ máy chủ về
+/* ============================================================================
+   Hệ thống xử lý đồng bộ dữ liệu mạng đám mây
+============================================================================ */
 async function dbGetAllMemories() {
+  if (!BIN_ID || BIN_ID.includes("ĐIỀN_MÃ")) {
+    console.warn("Chưa cấu hình BIN_ID. Chạy chế độ offline tạm thời.");
+    return [];
+  }
   try {
     const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, {
       headers: { "X-Master-Key": API_KEY }
     });
+    if (!res.ok) return [];
     const data = await res.json();
-    return data.record.memories || [];
+    if (data && data.record && Array.isArray(data.record.memories)) {
+      return data.record.memories;
+    }
+    return [];
   } catch (e) {
-    console.error("Lỗi lấy dữ liệu:", e);
+    console.error("Lỗi lấy dữ liệu đám mây:", e);
     return [];
   }
 }
 
-// Hàm đẩy dữ liệu mới lên máy chủ mạng công khai
 async function dbSaveAllMemories(memoriesArray) {
+  if (!BIN_ID || BIN_ID.includes("ĐIỀN_MÃ")) {
+    alert("Bạn cần cấu hình chính xác BIN_ID ở dòng 137 của code mới lưu online được!");
+    return false;
+  }
   try {
-    await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
+    const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -215,17 +220,17 @@ async function dbSaveAllMemories(memoriesArray) {
       },
       body: JSON.stringify({ memories: memoriesArray })
     });
-    return true;
+    return res.ok;
   } catch (e) {
-    console.error("Lỗi lưu dữ liệu:", e);
+    console.error("Lỗi đồng bộ đám mây:", e);
     return false;
   }
 }
 
 /* ============================================================================
-   Hằng số thiết lập Cây 3D
+   Dựng hình Đồ họa Cây 3D (Sử dụng thư viện không Module)
 ============================================================================ */
-const LEAF_COUNT = 9000; // Đã tăng xum xuê theo ý bạn muốn
+const LEAF_COUNT = 9000; 
 const LEAF_SPREAD_RADIUS = 7.5;
 const LEAF_SPREAD_HEIGHT = 8.5;
 const LEAF_CENTER_Y = 8.0;
@@ -242,7 +247,6 @@ let clickablePhotoMeshes = [];
 let raycaster = new THREE.Raycaster();
 let mouse = new THREE.Vector2();
 
-// Tạo vỏ cây gồ ghề 3D đẹp mắt
 function makeBarkMaterial() {
   const canvasColor = document.createElement('canvas');
   canvasColor.width = canvasColor.height = 512; 
@@ -272,29 +276,9 @@ function makeBarkMaterial() {
     ctxBump.fillRect(x, 0, w, 512);
   }
 
-  for (let i = 0; i < 40; i++) {
-    const x = Math.random() * 512;
-    const y = Math.random() * 512;
-    const r = 3 + Math.random() * 8;
-    ctxColor.fillStyle = '#1a0d05';
-    ctxColor.beginPath();
-    ctxColor.ellipse(x, y, r, r * 2.5, 0, 0, Math.PI * 2);
-    ctxColor.fill();
-    ctxBump.fillStyle = '#ffffff';
-    ctxBump.beginPath();
-    ctxBump.ellipse(x, y, r, r * 2.5, 0, 0, Math.PI * 2);
-    ctxBump.fill();
-  }
-
-  const mossGrad = ctxColor.createLinearGradient(0, 512, 0, 200);
-  mossGrad.addColorStop(0, 'rgba(85, 107, 47, 0.45)'); 
-  mossGrad.addColorStop(1, 'rgba(85, 107, 47, 0)'); 
-  ctxColor.fillStyle = mossGrad;
-  ctxColor.fillRect(0, 0, 512, 512);
-
   const colorTex = new THREE.CanvasTexture(canvasColor);
   colorTex.wrapS = colorTex.wrapT = THREE.RepeatWrapping;
-  colorTex.colorSpace = THREE.SRGBColorSpace;
+  colorTex.encoding = THREE.sRGBEncoding;
 
   const bumpTex = new THREE.CanvasTexture(canvasBump);
   bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping;
@@ -319,39 +303,27 @@ function makeLeafTexture() {
   ctx.quadraticCurveTo(55, 20, 32, 58);
   ctx.quadraticCurveTo(9, 20, 32, 5);
   ctx.fill();
-  
-  ctx.fillStyle = '#4a7d58';
-  ctx.beginPath();
-  ctx.moveTo(32, 5);
-  ctx.quadraticCurveTo(50, 20, 32, 58);
-  ctx.fill();
   return new THREE.CanvasTexture(c);
 }
 
 function createTreeStructure(scene) {
   const barkMat = makeBarkMaterial();
-  
-  // Trunk
   const trunkGeo = new THREE.CylinderGeometry(0.35, 0.75, 5, 12);
   trunkGeo.translate(0, 2.5, 0);
   const trunk = new THREE.Mesh(trunkGeo, barkMat);
   scene.add(trunk);
 
-  // Large branches configuration
   const branchConfigs = [
     { len: 4.2, r1: 0.28, r2: 0.15, rotZ: 0.65, rotY: 0.2, posY: 2.8 },
     { len: 3.8, r1: 0.24, r2: 0.12, rotZ: -0.58, rotY: 2.1, posY: 3.3 },
     { len: 3.6, r1: 0.22, r2: 0.10, rotZ: 0.52, rotY: -1.4, posY: 3.9 },
-    { len: 4.0, r1: 0.25, r2: 0.12, rotZ: -0.62, rotY: -2.7, posY: 3.1 },
-    { len: 3.2, r1: 0.18, r2: 0.08, rotZ: 0.40, rotY: 0.9, posY: 4.4 },
-    { len: 2.8, r1: 0.15, r2: 0.06, rotZ: -0.45, rotY: -0.6, posY: 4.8 }
+    { len: 4.0, r1: 0.25, r2: 0.12, rotZ: -0.62, rotY: -2.7, posY: 3.1 }
   ];
 
   branchConfigs.forEach(cfg => {
     const bGeo = new THREE.CylinderGeometry(cfg.r2, cfg.r1, cfg.len, 8);
     bGeo.translate(0, cfg.len / 2, 0);
     const bMesh = new THREE.Mesh(bGeo, barkMat);
-    
     bMesh.position.y = cfg.posY;
     bMesh.rotation.z = cfg.rotZ;
     bMesh.rotation.y = cfg.rotY;
@@ -366,8 +338,6 @@ function setupLushCanopy() {
 
   const primaryColor = new THREE.Color('#386144');
   const secondaryColor = new THREE.Color('#4c7d59');
-  const accentColor = new THREE.Color('#2d4f37');
-  const highlightColor = new THREE.Color('#60946d');
 
   for (let i = 0; i < LEAF_COUNT; i++) {
     let x, y, z;
@@ -385,12 +355,7 @@ function setupLushCanopy() {
     leafSpeeds.push({ x: (Math.random() - 0.5) * 0.02, y: 0.04 + Math.random() * 0.05, z: (Math.random() - 0.5) * 0.02 });
     leafRotations.push(Math.random() * Math.PI);
 
-    let finalColor = primaryColor;
-    const rand = Math.random();
-    if (rand > 0.82) finalColor = highlightColor;
-    else if (rand > 0.55) finalColor = secondaryColor;
-    else if (rand > 0.40) finalColor = accentColor;
-
+    let finalColor = Math.random() > 0.5 ? primaryColor : secondaryColor;
     colorArray[i*3] = finalColor.r;
     colorArray[i*3+1] = finalColor.g;
     colorArray[i*3+2] = finalColor.b;
@@ -415,12 +380,10 @@ function setupLushCanopy() {
 function generatePhoto3DPosition(index) {
   const goldenRatio = (1 + Math.sqrt(5)) / 2;
   const theta = (index * 2 * Math.PI) / goldenRatio;
-  
   const radius = 2.4 + Math.random() * 2.8;
   const x = Math.cos(theta) * radius;
   const z = Math.sin(theta) * radius;
   const y = 2.5 + (index * 0.35) % 4.8;
-  
   return { x, y, z, rotY: -theta + Math.PI / 2 };
 }
 
@@ -431,24 +394,17 @@ function makePhotoFrameMesh(memoryItem) {
   pGroup.rotation.y = p.rotY || 0;
   pGroup.scale.set(0.001, 0.001, 0.001);
 
-  // Thẻ chứa ảnh và thông tin bên dưới dạng Polaroid
   const canvas = document.createElement('canvas');
   canvas.width = 320;
   canvas.height = 400;
   const ctx = canvas.getContext('2d');
 
-  // Nền thẻ trắng tinh tế
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
-  ctx.roundRect(0, 0, 320, 400, 16);
+  if(ctx.roundRect) ctx.roundRect(0, 0, 320, 400, 16);
+  else ctx.rect(0, 0, 320, 400);
   ctx.fill();
 
-  // Đổ bóng viền thẻ nhẹ nhàng
-  ctx.strokeStyle = 'rgba(44,76,56,0.1)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  // Vẽ phần text (Tên tác giả dưới chân thẻ)
   ctx.fillStyle = '#3d664c';
   ctx.font = 'bold 18px Quicksand, sans-serif';
   ctx.textAlign = 'center';
@@ -457,13 +413,12 @@ function makePhotoFrameMesh(memoryItem) {
   ctx.fillText(shortName, 160, 365);
 
   const cardTexture = new THREE.CanvasTexture(canvas);
-  cardTexture.colorSpace = THREE.SRGBColorSpace;
+  cardTexture.encoding = THREE.sRGBEncoding;
   const cardMat = new THREE.MeshBasicMaterial({ map: cardTexture, transparent: true, side: THREE.DoubleSide });
   const cardGeo = new THREE.PlaneGeometry(1.2, 1.5);
   const cardMesh = new THREE.Mesh(cardGeo, cardMat);
   pGroup.add(cardMesh);
 
-  // Lớp ảnh chụp đè lên vùng trống phía trên thẻ
   const img = new Image();
   img.src = memoryItem.imageData;
   img.onload = () => {
@@ -472,26 +427,22 @@ function makePhotoFrameMesh(memoryItem) {
     innerCanvas.height = 280;
     const innerCtx = innerCanvas.getContext('2d');
 
-    // Cắt góc ảnh tròn mượt mà
-    innerCtx.beginPath();
-    innerCtx.roundRect(0, 0, 280, 280, 8);
+    if(innerCtx.roundRect) innerCtx.roundRect(0, 0, 280, 280, 8);
+    else innerCtx.rect(0, 0, 280, 280);
     innerCtx.clip();
 
-    // Vẽ căn giữa ảnh theo tỉ lệ vuông Aspect Ratio
     const scale = Math.max(280 / img.width, 280 / img.height);
     const nw = img.width * scale;
     const nh = img.height * scale;
-    const nx = (280 - nw) / 2;
-    const ny = (280 - nh) / 2;
-    innerCtx.drawImage(img, nx, ny, nw, nh);
+    innerCtx.drawImage(img, (280 - nw)/2, (280 - nh)/2, nw, nh);
 
     const imgTex = new THREE.CanvasTexture(innerCanvas);
-    imgTex.colorSpace = THREE.SRGBColorSpace;
+    imgTex.encoding = THREE.sRGBEncoding;
     const imgMat = new THREE.MeshBasicMaterial({ map: imgTex, side: THREE.DoubleSide });
     const imgGeo = new THREE.PlaneGeometry(1.05, 1.05);
     
     const imgMesh = new THREE.Mesh(imgGeo, imgMat);
-    imgMesh.position.set(0, 0.16, 0.002); // Đẩy nhẹ ảnh lên bề mặt thẻ trước tránh lỗi đè hình
+    imgMesh.position.set(0, 0.16, 0.002); 
     pGroup.add(imgMesh);
     cardTexture.needsUpdate = true;
   };
@@ -518,19 +469,8 @@ async function addPhotoToScene(memoryItem, delaySeconds = 0) {
   }, delaySeconds * 1000);
 }
 
-function showEmptyHint() {
-  document.getElementById('empty-hint').classList.remove('hidden');
-}
-function hideEmptyHint() {
-  document.getElementById('empty-hint').classList.add('hidden');
-}
-
-/* ============================================================================
-   Khởi chạy và dựng hình không gian (Three.js Core)
-============================================================================ */
 function setupThreeEngine() {
   const container = document.getElementById('canvas-container');
-  
   scene = new THREE.Scene();
   scene.background = new THREE.Color('#b8e0f0');
   scene.fog = new THREE.FogExp2('#b8e0f0', 0.015);
@@ -538,21 +478,20 @@ function setupThreeEngine() {
   camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.set(0, 5, 15);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.shadowMap.enabled = true;
+  renderer.outputEncoding = THREE.sRGBEncoding;
   container.appendChild(renderer.domElement);
 
-  controls = new OrbitControls(camera, renderer.domElement);
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
-  controls.maxPolarAngle = Math.PI / 2 - 0.02; // Ngăn camera chui xuống lòng đất
+  controls.maxPolarAngle = Math.PI / 2 - 0.02; 
   controls.minDistance = 3;
   controls.maxDistance = 25;
   controls.target.set(0, 4.5, 0);
 
-  // Ánh sáng môi trường tự nhiên
   const ambientLight = new THREE.AmbientLight('#ffffff', 0.65);
   scene.add(ambientLight);
 
@@ -560,12 +499,10 @@ function setupThreeEngine() {
   sunLight.position.set(10, 20, 10);
   scene.add(sunLight);
 
-  // Thêm bãi cỏ phẳng làm bệ đỡ gốc cây
   const groundGeo = new THREE.PlaneGeometry(100, 100);
   const groundMat = new THREE.MeshStandardMaterial({ color: '#7da186', roughness: 0.9 });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
-  ground.position.y = 0;
   scene.add(ground);
 
   createTreeStructure(scene);
@@ -582,9 +519,7 @@ function onWindowResize() {
 }
 
 function onSceneClick(e) {
-  // Bỏ qua tương tác vật lý 3D nếu bấm nhầm vào các thanh công cụ UI bên trên
   if (e.target.tagName === 'BUTTON' || e.target.closest('.ui-interactive') || e.target.closest('.modal-card')) return;
-
   mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(mouse, camera);
@@ -604,10 +539,7 @@ function openDetailViewModal(data) {
   document.getElementById('view-photo').style.backgroundImage = `url(${data.imageData})`;
   document.getElementById('view-caption').innerText = data.caption || "";
   document.getElementById('view-author').innerText = data.author || "Ẩn danh";
-  
-  const dateStr = data.createdAt ? new Date(data.createdAt).toLocaleDateString('vi-VN') : "Kỉ niệm";
-  document.getElementById('view-date').innerText = dateStr;
-
+  document.getElementById('view-date').innerText = data.createdAt ? new Date(data.createdAt).toLocaleDateString('vi-VN') : "Kỉ niệm";
   document.getElementById('modal-view').classList.add('active');
 }
 
@@ -615,27 +547,20 @@ function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
-  // Hiệu ứng lá rơi nhẹ nhàng theo làn gió sinh động
   if (leafParticles && leafGeometry) {
     const positions = leafGeometry.attributes.position.array;
     const time = Date.now() * 0.0008;
 
     for (let i = 0; i < LEAF_COUNT; i++) {
       if (isFoliageFalling) {
-        // Trạng thái rơi tự do chạm đất
         leafPositions[i].y -= leafSpeeds[i].y;
         leafPositions[i].x += Math.sin(time + i) * 0.01;
         leafPositions[i].z += Math.cos(time * 0.8 + i) * 0.01;
-
-        if (leafPositions[i].y < 0.05) {
-          leafPositions[i].y = 0.05; // Giữ lá nằm trên mặt đất
-        }
+        if (leafPositions[i].y < 0.05) leafPositions[i].y = 0.05;
       } else {
-        // Trạng thái đung đưa nhẹ nhàng trên cành cây
         leafPositions[i].x += Math.sin(time + i) * 0.0015;
         leafPositions[i].z += Math.cos(time * 0.7 + i) * 0.0015;
       }
-
       positions[i*3] = leafPositions[i].x;
       positions[i*3+1] = leafPositions[i].y;
       positions[i*3+2] = leafPositions[i].z;
@@ -643,7 +568,6 @@ function animate() {
     leafGeometry.attributes.position.needsUpdate = true;
   }
 
-  // Tự động xoay nhẹ các tấm thẻ ảnh kỉ niệm hướng theo camera góc nhìn người xem
   clickablePhotoMeshes.forEach(mesh => {
     mesh.lookAt(camera.position.x, mesh.position.y, camera.position.z);
   });
@@ -652,38 +576,23 @@ function animate() {
 }
 
 /* ============================================================================
-   Xử lý Tương tác Sự kiện Giao diện Người dùng (UI Events)
+   Khởi chạy và quản lý Sự kiện biểu mẫu UI
 ============================================================================ */
 async function initApp() {
   setupThreeEngine();
-
-  // Đọc danh sách lưu bút từ máy chủ công khai về cây
   const memories = await dbGetAllMemories();
-  memories.sort((a, b) => a.createdAt - b.createdAt);
-
-  // Sửa lỗi rớt tọa độ nếu có dữ liệu cũ lỗi format
-  let checkStructureUpdate = false;
-  for (let i = 0; i < memories.length; i++) {
-    if (!memories[i].position3D) {
-      memories[i].position3D = generatePhoto3DPosition(i);
-      checkStructureUpdate = true;
-    }
-  }
-  if (checkStructureUpdate) {
-    await dbSaveAllMemories(memories);
-  }
-
   allMemoriesCache = memories;
+
   setTimeout(() => document.getElementById('loader').classList.add('hidden'), 300);
   animate();
 
-  if (memories.length === 0) showEmptyHint();
-  else {
+  if (memories.length === 0) {
+    document.getElementById('empty-hint').classList.remove('hidden');
+  } else {
     for (let i = 0; i < memories.length; i++) {
       await addPhotoToScene(memories[i], i * 0.08);
     }
   }
-
   setupFormAndUIActions();
 }
 
@@ -693,90 +602,66 @@ function setupFormAndUIActions() {
   const pickerZone = document.getElementById('picker-zone');
   const inputFile = document.getElementById('input-file');
   const pickerPreview = document.getElementById('picker-preview-img');
-  
   let base64ImageStr = "";
 
-  // Bật tắt hộp thoại Modal
   document.getElementById('btn-add-trigger').onclick = () => modalAdd.classList.add('active');
   document.getElementById('btn-add-close').onclick = () => modalAdd.classList.remove('active');
   document.getElementById('btn-view-close').onclick = () => modalView.classList.remove('active');
 
-  // Xử lý kéo thả chọn file ảnh kỉ niệm nhanh
   pickerZone.onclick = () => inputFile.click();
-  pickerZone.ondragover = (e) => { e.preventDefault(); pickerZone.style.borderColor = '#3d664c'; };
-  pickerZone.ondragleave = () => { pickerZone.style.borderColor = 'rgba(61,102,76,0.25)'; };
-  pickerZone.ondrop = (e) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleSelectedImageFile(e.dataTransfer.files[0]);
-  };
   inputFile.onchange = (e) => {
-    if (e.target.files && e.target.files[0]) handleSelectedImageFile(e.target.files[0]);
+    if (e.target.files && e.target.files[0]) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        base64ImageStr = event.target.result;
+        pickerPreview.style.backgroundImage = `url(${base64ImageStr})`;
+        pickerPreview.style.display = 'block';
+      };
+      reader.readAsDataURL(e.target.files[0]);
+    }
   };
 
-  function handleSelectedImageFile(file) {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      base64ImageStr = event.target.result;
-      pickerPreview.style.backgroundImage = `url(${base64ImageStr})`;
-      pickerPreview.style.display = 'block';
-    };
-    reader.readAsDataURL(file);
-  }
-
-  // Đăng ký lưu bút mới đẩy thẳng lên máy chủ chung toàn trường
   document.getElementById('form-memory').onsubmit = async (e) => {
     e.preventDefault();
-    if (!base64ImageStr) { alert("Vui lòng tải lên một bức ảnh kỉ niệm bạn nhé!"); return; }
+    if (!base64ImageStr) { alert("Vui lòng chọn một bức ảnh kỉ niệm!"); return; }
 
     const submitBtn = e.target.querySelector('button[type="submit"]');
     submitBtn.innerText = "Đang treo lên cây...";
     submitBtn.disabled = true;
 
-    const newMemoryIndex = allMemoriesCache.length;
     const newMemoryItem = {
-      id: "mem_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5),
+      id: "mem_" + Date.now(),
       author: document.getElementById('input-author').value.trim(),
       caption: document.getElementById('input-caption').value.trim(),
       imageData: base64ImageStr,
       createdAt: Date.now(),
-      position3D: generatePhoto3DPosition(newMemoryIndex)
+      position3D: generatePhoto3DPosition(allMemoriesCache.length)
     };
 
     allMemoriesCache.push(newMemoryItem);
     const success = await dbSaveAllMemories(allMemoriesCache);
 
     if (success) {
-      hideEmptyHint();
+      document.getElementById('empty-hint').classList.add('hidden');
       await addPhotoToScene(newMemoryItem, 0);
       modalAdd.classList.remove('active');
-      
-      // Reset form xóa thông tin cũ chuẩn bị cho lượt tiếp theo
       document.getElementById('form-memory').reset();
       pickerPreview.style.display = 'none';
       base64ImageStr = "";
     } else {
-      alert("Đã xảy ra lỗi đường truyền, vui lòng thử lại!");
-      allMemoriesCache.pop(); // Xóa phần tử lỗi khỏi bộ nhớ đệm
+      allMemoriesCache.pop();
     }
     submitBtn.innerText = "Treo Lên Cây Kí Ức";
     submitBtn.disabled = false;
   };
 
-  // Nút kích hoạt lá rơi
   document.getElementById('btn-fall-trigger').onclick = () => {
     isFoliageFalling = !isFoliageFalling;
     document.getElementById('btn-fall-trigger').innerText = isFoliageFalling ? "🍃 Ngừng rơi" : "🍃 Lá rơi";
-    if (!isFoliageFalling) {
-      // Đưa lá trở lại cành nếu nhấn dừng rơi
-      leafPositions.forEach(lp => { lp.y = lp.originY; });
-    }
+    if (!isFoliageFalling) leafPositions.forEach(lp => { lp.y = lp.originY; });
   };
 
-  // Trình phát nhạc nền kỉ niệm
   const audio = document.getElementById('bg-audio');
-  const musicBadge = document.getElementById('music-status-badge');
-  const musicNameSpan = document.getElementById('music-file-name');
-
   document.getElementById('btn-music-trigger').onclick = () => {
     if (!audio.src) document.getElementById('input-music-file').click();
     else {
@@ -788,24 +673,15 @@ function setupFormAndUIActions() {
   document.getElementById('input-music-file').onchange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      audio.src = url;
+      audio.src = URL.createObjectURL(file);
       audio.play();
-      musicNameSpan.innerText = file.name;
-      musicBadge.style.display = 'flex';
+      document.getElementById('music-file-name').innerText = file.name;
+      document.getElementById('music-status-badge').style.display = 'flex';
       document.getElementById('btn-music-trigger').innerText = "⏸ Tạm dừng";
     }
   };
-
-  document.getElementById('btn-music-remove').onclick = () => {
-    audio.pause();
-    audio.removeAttribute('src');
-    musicBadge.style.display = 'none';
-    document.getElementById('btn-music-trigger').innerText = "🎵 Nhạc nền";
-  };
 }
 
-// Khởi động toàn bộ chương trình ứng dụng
 window.addEventListener('DOMContentLoaded', initApp);
 </script>
 </body>
